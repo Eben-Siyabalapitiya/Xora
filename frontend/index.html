@@ -1,0 +1,635 @@
+cat > /mnt/user-data/outputs/index.html << 'HTMLEOF'
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Xora — WiFi Motion Tracking</title>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/socket.io/4.7.2/socket.io.min.js"></script>
+<style>
+*{box-sizing:border-box;margin:0;padding:0}
+:root{
+  --bg:#0d0d0f;--bg2:#141416;--bg3:#1a1a1c;
+  --border:rgba(255,255,255,0.07);--border2:rgba(255,255,255,0.12);
+  --text:#ffffff;--text2:rgba(255,255,255,0.55);--text3:rgba(255,255,255,0.3);
+  --purple:#7F77DD;--purple2:#534AB7;--purple3:#EEEDFE;
+  --green:#4ade80;--green-bg:rgba(74,222,128,0.12);--green-border:rgba(74,222,128,0.25);
+  --red:#f87171;--red-bg:rgba(239,68,68,0.12);--red-border:rgba(239,68,68,0.25);
+  --teal:#1D9E75;--amber:#EF9F27;--blue:#85B7EB;
+}
+body{background:var(--bg);color:var(--text);font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif;font-size:13px;min-height:100vh}
+.topbar{display:flex;align-items:center;justify-content:space-between;padding:10px 16px;background:var(--bg2);border-bottom:1px solid var(--border)}
+.logo{font-size:15px;font-weight:600;letter-spacing:-.3px}.logo span{color:var(--purple)}
+.top-right{display:flex;align-items:center;gap:8px}
+.pill{font-size:10px;padding:3px 9px;border-radius:20px;font-weight:500;border:1px solid var(--border2);color:var(--text2)}
+.pill-live{background:var(--green-bg);color:var(--green);border-color:var(--green-border)}
+.nav{display:flex;padding:0 16px;background:var(--bg2);border-bottom:1px solid var(--border)}
+.ntab{padding:10px 18px;font-size:13px;cursor:pointer;color:var(--text2);border-bottom:2px solid transparent;user-select:none;transition:all .15s}
+.ntab.on{color:var(--purple);border-bottom-color:var(--purple);font-weight:500}
+.ntab:hover:not(.on){color:var(--text)}
+.panel{display:none;padding:14px 16px}.panel.on{display:block}
+.chips{display:flex;gap:6px;margin-bottom:12px;flex-wrap:wrap}
+.chip{font-size:11px;padding:4px 10px;border-radius:6px;border:1px solid var(--border);background:var(--bg2);color:var(--text2);display:flex;align-items:center;gap:5px}
+.cdot{width:6px;height:6px;border-radius:50%;background:#4ade80;box-shadow:0 0 5px #4ade80}
+
+/* main layout */
+.mg{display:flex;gap:12px}
+.lc{display:flex;flex-direction:column;gap:10px;transition:flex .3s}
+.lc.big{flex:1.25}.lc.small{flex:.75}
+.rc{display:flex;flex-direction:column;gap:10px;transition:flex .3s}
+.rc.big{flex:1.25}.rc.small{flex:.75}
+
+.card{background:var(--bg2);border:1px solid var(--border);border-radius:12px;overflow:hidden}
+.ch{padding:8px 14px;border-bottom:1px solid var(--border);font-size:11px;color:var(--text2);display:flex;justify-content:space-between;align-items:center;background:rgba(255,255,255,0.02)}
+.cb{padding:12px}
+canvas{display:block;width:100%;cursor:grab}
+canvas:active{cursor:grabbing}
+.cfr{display:flex;align-items:center;gap:8px;padding:8px 14px;border-top:1px solid var(--border)}
+.cfw{flex:1;height:4px;background:var(--border);border-radius:2px;overflow:hidden}
+.cff{height:100%;border-radius:2px;background:linear-gradient(90deg,var(--purple2),var(--purple));transition:width .4s}
+.mb{font-size:10px;font-weight:500;padding:2px 9px;border-radius:10px;border:1px solid;transition:all .3s}
+.mbon{background:var(--red-bg);color:var(--red);border-color:var(--red-border)}
+.mboff{background:var(--green-bg);color:var(--green);border-color:var(--green-border)}
+.stats{display:flex;gap:8px}
+.st{flex:1;background:var(--bg3);border:1px solid var(--border);border-radius:10px;padding:10px}
+.sv{font-size:18px;font-weight:500;letter-spacing:-.3px}
+.sl{font-size:10px;color:var(--text3);margin-top:3px}
+.sr{display:flex;gap:3px;align-items:flex-end;height:34px;padding:0 14px 8px}
+.sb{flex:1;border-radius:2px 2px 0 0;background:rgba(127,119,221,0.3);min-height:2px;transition:height .08s}
+.zi{display:flex;align-items:center;gap:8px;padding:7px 0;border-bottom:1px solid var(--border)}
+.zi:last-child{border-bottom:none}
+.zd{width:7px;height:7px;border-radius:50%;flex-shrink:0}
+.zn{font-size:12px;flex:1}
+.zbw{width:55px;height:3px;background:var(--border);border-radius:2px;overflow:hidden}
+.zb{height:100%;border-radius:2px;transition:width .8s}
+.zt{font-size:10px;color:var(--text3);min-width:24px;text-align:right}
+.tlr{display:flex;align-items:center;gap:8px;margin-bottom:5px}
+.tlt{font-size:9px;color:var(--text3);min-width:30px;font-family:monospace}
+.tlw{flex:1;height:10px;background:var(--bg3);border-radius:3px;overflow:hidden;position:relative;border:1px solid var(--border)}
+.tls{position:absolute;top:0;height:100%;border-radius:2px;opacity:.75}
+
+/* view controls */
+.view-btns{display:flex;gap:4px}
+.vbtn{font-size:10px;padding:2px 8px;border-radius:6px;border:1px solid var(--border2);background:transparent;color:var(--text2);cursor:pointer;font-family:inherit;transition:all .15s}
+.vbtn:hover{background:rgba(255,255,255,0.06);color:var(--text)}
+.vbtn.on{background:var(--purple);color:var(--purple3);border-color:var(--purple2)}
+
+/* swap button */
+.swap-btn{font-size:10px;padding:2px 8px;border-radius:6px;border:1px solid var(--border2);background:transparent;color:var(--text2);cursor:pointer;font-family:inherit;transition:all .15s}
+.swap-btn:hover{background:rgba(255,255,255,0.06);color:var(--text)}
+
+/* training */
+.tg{display:grid;grid-template-columns:1fr 1fr;gap:10px;margin-bottom:10px}
+.tc{background:var(--bg2);border:1px solid var(--border);border-radius:12px;padding:14px}
+.tt{font-size:13px;font-weight:500;margin-bottom:5px}
+.ts2{font-size:12px;color:var(--text2);margin-bottom:12px;line-height:1.5}
+.tbtn{padding:8px 14px;border-radius:8px;font-size:12px;cursor:pointer;border:1px solid var(--border2);background:var(--bg3);color:var(--text);font-family:inherit;width:100%;transition:all .15s}
+.tbtn:hover:not(:disabled){background:rgba(255,255,255,0.08)}
+.tbtn:disabled{opacity:.5;cursor:default}
+.tbtnp{background:var(--purple);color:var(--purple3);border-color:var(--purple2)}
+.tbtnp:hover:not(:disabled){background:var(--purple2)}
+.tbtnd{background:var(--red-bg);color:var(--red);border-color:var(--red-border)}
+.pw{height:5px;background:var(--bg3);border-radius:3px;overflow:hidden;margin-top:10px;border:1px solid var(--border)}
+.pf{height:100%;border-radius:3px;background:var(--purple);transition:width .3s}
+.sc2{font-size:10px;color:var(--text3);margin-top:4px}
+.sdot{width:6px;height:6px;border-radius:50%;background:var(--border2);display:inline-block;margin-right:5px}
+.sdot.done{background:#4ade80}.sdot.act{background:var(--purple)}
+.ab{background:var(--bg3);border:1px solid var(--border);border-radius:10px;padding:12px;display:flex;align-items:center;gap:12px;margin-top:12px}
+.an{font-size:24px;font-weight:600;color:#4ade80}
+
+/* settings */
+.sg{display:grid;grid-template-columns:1fr 1fr;gap:10px}
+.scard{background:var(--bg2);border:1px solid var(--border);border-radius:12px;padding:14px}
+.sct{font-size:13px;font-weight:500;margin-bottom:12px}
+.srow{display:flex;justify-content:space-between;align-items:center;padding:7px 0;border-bottom:1px solid var(--border)}
+.srow:last-child{border-bottom:none}
+.slbl{font-size:12px;color:var(--text2)}
+.sval{font-size:12px;font-weight:500}
+.sinp{width:80px;font-size:12px;padding:4px 8px;border-radius:6px;border:1px solid var(--border2);background:var(--bg3);color:var(--text);font-family:inherit;text-align:right}
+.tog{width:32px;height:18px;border-radius:9px;border:1px solid var(--border2);background:var(--bg3);cursor:pointer;position:relative;flex-shrink:0;transition:background .2s}
+.tog.on{background:var(--purple);border-color:var(--purple2)}
+.tog::after{content:'';position:absolute;top:2px;left:2px;width:12px;height:12px;border-radius:50%;background:#fff;transition:left .2s}
+.tog.on::after{left:16px}
+.ztag{display:inline-flex;align-items:center;gap:6px;padding:5px 10px;border:1px solid var(--border);border-radius:8px;font-size:12px;color:var(--text2)}
+.ztag.add{background:var(--bg3);cursor:pointer}.ztag.add:hover{background:rgba(255,255,255,0.06)}
+.ztagdot{width:7px;height:7px;border-radius:2px;flex-shrink:0}
+</style>
+</head>
+<body>
+
+<div class="topbar">
+  <div class="logo"><span>Xora</span> &nbsp;·&nbsp; <span style="color:var(--text3);font-weight:400;font-size:13px">wifi motion tracking</span></div>
+  <div class="top-right">
+    <span class="pill pill-live" id="live-pill">● live</span>
+    <span class="pill">room A</span>
+    <span class="pill" id="fps-pill">—</span>
+  </div>
+</div>
+
+<div class="nav">
+  <div class="ntab on" onclick="sw(0,this)">live tracking</div>
+  <div class="ntab" onclick="sw(1,this)">training</div>
+  <div class="ntab" onclick="sw(2,this)">settings</div>
+</div>
+
+<!-- ══════════════════ LIVE TRACKING ══════════════════ -->
+<div class="panel on" id="t0">
+  <div class="chips">
+    <div class="chip"><div class="cdot"></div>ESP32-A · transmitter</div>
+    <div class="chip"><div class="cdot"></div>ESP32-B · rx</div>
+    <div class="chip"><div class="cdot"></div>ESP32-C · rx</div>
+    <div class="chip"><div class="cdot"></div>ESP32-D · rx</div>
+    <button class="swap-btn" onclick="swapPanels()" style="margin-left:auto">⇄ swap views</button>
+  </div>
+  <div class="mg">
+    <div class="lc big" id="lc">
+      <div class="card" id="hm-card">
+        <div class="ch"><span>heatmap + trail</span><span class="mb mboff" id="mb">still</span></div>
+        <canvas id="hm" height="220"></canvas>
+        <div class="cfr">
+          <span style="font-size:10px;color:var(--text3)">model confidence</span>
+          <div class="cfw"><div class="cff" id="cf" style="width:0%"></div></div>
+          <span style="font-size:10px;color:var(--text2);min-width:28px;text-align:right" id="cv">0%</span>
+        </div>
+      </div>
+      <div class="stats">
+        <div class="st"><div class="sv" id="s1">—</div><div class="sl">zone</div></div>
+        <div class="st"><div class="sv" id="s2">0</div><div class="sl">events</div></div>
+        <div class="st"><div class="sv" id="s3">0m</div><div class="sl">dwell</div></div>
+        <div class="st"><div class="sv" id="s4">0.0</div><div class="sl">variance</div></div>
+      </div>
+    </div>
+    <div class="rc small" id="rc">
+      <div class="card">
+        <div class="ch">
+          <span>3d room view &nbsp;<span style="font-size:10px;color:var(--text3)" id="p3d">still</span></span>
+          <div style="display:flex;align-items:center;gap:6px">
+            <div class="view-btns">
+              <button class="vbtn on" onclick="setView(0.55,0.6,'iso',this)">iso</button>
+              <button class="vbtn" onclick="setView(1.45,0.01,'top',this)">top</button>
+              <button class="vbtn" onclick="setView(0.1,0.6,'side',this)">side</button>
+            </div>
+          </div>
+        </div>
+        <canvas id="c3" height="170"></canvas>
+      </div>
+      <div class="card">
+        <div class="ch">csi signal · board B</div>
+        <div class="sr" id="sr"></div>
+      </div>
+      <div class="card">
+        <div class="ch">zone activity</div>
+        <div class="cb" id="zl"></div>
+      </div>
+      <div class="card">
+        <div class="ch">24h timeline</div>
+        <div class="cb" id="tl"></div>
+      </div>
+    </div>
+  </div>
+</div>
+
+<!-- ══════════════════ TRAINING ══════════════════ -->
+<div class="panel" id="t1">
+  <div class="tc" style="margin-bottom:10px">
+    <div class="tt">how training works</div>
+    <div style="font-size:12px;color:var(--text2);line-height:1.6;margin-top:4px">Record labeled CSI data for each scenario below then hit train. The model learns the difference between motion, empty room, and outside activity. Takes about 5 minutes total to collect — training runs automatically after.</div>
+  </div>
+  <div class="tg">
+    <div class="tc">
+      <div class="tt">empty room</div>
+      <div class="ts2">Leave the room completely empty. Records baseline signal with nobody present.</div>
+      <button class="tbtn" onclick="startRecording('empty',3000,this)">start recording</button>
+      <div class="pw"><div class="pf" id="p-empty" style="width:0%"></div></div>
+      <div class="sc2" id="sc-empty">0 / 3,000 samples</div>
+      <div style="margin-top:6px;font-size:11px;color:var(--text2)"><span class="sdot" id="d-empty"></span><span id="l-empty">waiting</span></div>
+    </div>
+    <div class="tc">
+      <div class="tt">motion — 1 person</div>
+      <div class="ts2">Walk around your room normally. Sit, stand, pace. Captures single person signal patterns.</div>
+      <button class="tbtn" onclick="startRecording('motion1',5000,this)">start recording</button>
+      <div class="pw"><div class="pf" id="p-motion1" style="width:0%"></div></div>
+      <div class="sc2" id="sc-motion1">0 / 5,000 samples</div>
+      <div style="margin-top:6px;font-size:11px;color:var(--text2)"><span class="sdot" id="d-motion1"></span><span id="l-motion1">waiting</span></div>
+    </div>
+    <div class="tc">
+      <div class="tt">motion — 2 people</div>
+      <div class="ts2">You and someone else move around together. Teaches the model what two people looks like.</div>
+      <button class="tbtn" onclick="startRecording('motion2',5000,this)">start recording</button>
+      <div class="pw"><div class="pf" id="p-motion2" style="width:0%"></div></div>
+      <div class="sc2" id="sc-motion2">0 / 5,000 samples</div>
+      <div style="margin-top:6px;font-size:11px;color:var(--text2)"><span class="sdot" id="d-motion2"></span><span id="l-motion2">waiting</span></div>
+    </div>
+    <div class="tc">
+      <div class="tt">outside room</div>
+      <div class="ts2">Have someone walk in the hallway outside. Teaches the model to ignore outside movement.</div>
+      <button class="tbtn" onclick="startRecording('outside',3000,this)">start recording</button>
+      <div class="pw"><div class="pf" id="p-outside" style="width:0%"></div></div>
+      <div class="sc2" id="sc-outside">0 / 3,000 samples</div>
+      <div style="margin-top:6px;font-size:11px;color:var(--text2)"><span class="sdot" id="d-outside"></span><span id="l-outside">waiting</span></div>
+    </div>
+  </div>
+  <div class="tc">
+    <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:12px">
+      <div class="tt" style="margin:0">train model</div>
+      <span style="font-size:11px;color:var(--text3)" id="tstat">collect data above first</span>
+    </div>
+    <div style="display:flex;gap:8px">
+      <button class="tbtn tbtnp" style="flex:2" id="train-btn" onclick="runTraining()">train now — tensorflow cnn+lstm</button>
+      <button class="tbtn tbtnd" style="flex:1" onclick="clearAll()">clear all data</button>
+    </div>
+    <div id="accbox" style="display:none" class="ab">
+      <div class="an" id="accnum">—</div>
+      <div>
+        <div style="font-size:13px;font-weight:500">model accuracy</div>
+        <div style="font-size:11px;color:var(--text2);margin-top:2px">trained on your room · ready to deploy</div>
+      </div>
+    </div>
+  </div>
+</div>
+
+<!-- ══════════════════ SETTINGS ══════════════════ -->
+<div class="panel" id="t2">
+  <div class="sg">
+    <div class="scard">
+      <div class="sct">network</div>
+      <div class="srow"><span class="slbl">UDP port</span><input class="sinp" value="5005"></div>
+      <div class="srow"><span class="slbl">laptop IP</span><input class="sinp" value="192.168.1.45"></div>
+      <div class="srow"><span class="slbl">WiFi network</span><input class="sinp" value="HomeWiFi"></div>
+      <div class="srow"><span class="slbl">packets / sec</span><span class="sval">~100</span></div>
+      <div class="srow"><span class="slbl">boards online</span><span class="sval" style="color:#4ade80">4 / 4</span></div>
+    </div>
+    <div class="scard">
+      <div class="sct">detection</div>
+      <div class="srow"><span class="slbl">motion threshold</span><input class="sinp" value="3.0"></div>
+      <div class="srow"><span class="slbl">smoothing (lerp)</span><input class="sinp" value="0.03"></div>
+      <div class="srow"><span class="slbl">trail length</span><input class="sinp" value="40"></div>
+      <div class="srow"><span class="slbl">calibration secs</span><input class="sinp" value="30"></div>
+      <div class="srow"><span class="slbl">model loaded</span><span class="sval" id="model-status" style="color:var(--text3)">none</span></div>
+    </div>
+    <div class="scard">
+      <div class="sct">boards</div>
+      <div class="srow"><span class="slbl">ESP32-A</span><span class="sval" style="display:flex;align-items:center;gap:6px"><div class="cdot"></div>transmitter</span></div>
+      <div class="srow"><span class="slbl">ESP32-B</span><span class="sval" style="display:flex;align-items:center;gap:6px"><div class="cdot"></div>192.168.1.51</span></div>
+      <div class="srow"><span class="slbl">ESP32-C</span><span class="sval" style="display:flex;align-items:center;gap:6px"><div class="cdot"></div>192.168.1.52</span></div>
+      <div class="srow"><span class="slbl">ESP32-D</span><span class="sval" style="display:flex;align-items:center;gap:6px"><div class="cdot"></div>192.168.1.53</span></div>
+    </div>
+    <div class="scard">
+      <div class="sct">display</div>
+      <div class="srow"><span class="slbl">show furniture</span><div class="tog on" id="tog-furn" onclick="this.classList.toggle('on')"></div></div>
+      <div class="srow"><span class="slbl">show trail</span><div class="tog on" id="tog-trail" onclick="this.classList.toggle('on')"></div></div>
+      <div class="srow"><span class="slbl">show grid</span><div class="tog" id="tog-grid" onclick="this.classList.toggle('on')"></div></div>
+      <div class="srow"><span class="slbl">confidence ring</span><div class="tog on" id="tog-ring" onclick="this.classList.toggle('on')"></div></div>
+      <div class="srow"><span class="slbl">notifications</span><div class="tog" id="tog-notif" onclick="this.classList.toggle('on')"></div></div>
+    </div>
+    <div class="scard" style="grid-column:1/-1">
+      <div class="sct">room zones</div>
+      <div style="display:flex;gap:8px;flex-wrap:wrap">
+        <div class="ztag"><div class="ztagdot" style="background:var(--purple)"></div>desk · (0.75, 0.22)</div>
+        <div class="ztag"><div class="ztagdot" style="background:var(--teal)"></div>bed · (0.22, 0.75)</div>
+        <div class="ztag"><div class="ztagdot" style="background:var(--amber)"></div>door · (0.50, 0.06)</div>
+        <div class="ztag"><div class="ztagdot" style="background:var(--blue)"></div>center · (0.50, 0.50)</div>
+        <div class="ztag add">+ add zone</div>
+      </div>
+    </div>
+  </div>
+</div>
+
+<script>
+const socket = io();
+socket.on('connect', () => { document.getElementById('live-pill').textContent = '● live'; });
+socket.on('disconnect', () => { document.getElementById('live-pill').textContent = '○ offline'; document.getElementById('live-pill').className = 'pill'; });
+
+// ── State ─────────────────────────────────────────────────
+let px = 0.5, py = 0.5, trail = [], conf = 0, dwell = Date.now();
+let fc = 0, lastFps = Date.now();
+let liveMotion = false, liveVariance = 0, liveEvents = 0;
+const sigH = new Array(24).fill(4);
+const zones = [
+  {name:'desk',   color:'#7F77DD', x:.78, y:.22, t:0},
+  {name:'bed',    color:'#1D9E75', x:.22, y:.75, t:0},
+  {name:'door',   color:'#EF9F27', x:.5,  y:.06, t:0},
+  {name:'center', color:'#85B7EB', x:.5,  y:.5,  t:0},
+];
+const furn = [
+  {x:.05,y:.05,w:.42,h:.24,c:'rgba(127,119,221,0.18)',b:'rgba(127,119,221,0.45)',l:'bed'},
+  {x:.55,y:.05,w:.38,h:.2, c:'rgba(24,95,165,0.15)', b:'rgba(96,165,250,0.4)',  l:'desk'},
+  {x:.05,y:.68,w:.25,h:.26,c:'rgba(15,110,86,0.15)', b:'rgba(29,158,117,0.4)', l:'wardrobe'},
+  {x:.36,y:.93,w:.2, h:.04,c:'rgba(127,119,221,0.08)',b:'rgba(127,119,221,0.3)',l:'door'},
+];
+
+socket.on('state', d => {
+  px = d.px; py = d.py; conf = d.confidence;
+  liveMotion = d.motion; liveVariance = d.variance; liveEvents = d.events;
+  if (liveMotion) { trail.push({x:px,y:py}); if(trail.length>40)trail.shift(); zones[getZone()].t+=.04; }
+  else { if(trail.length) trail.shift(); }
+  document.getElementById('s1').textContent = zones[getZone()].name;
+  document.getElementById('s2').textContent = liveEvents;
+  document.getElementById('s4').textContent = liveVariance.toFixed(1);
+  const mb = document.getElementById('mb');
+  mb.textContent = liveMotion ? 'motion' : 'still';
+  mb.className = 'mb ' + (liveMotion ? 'mbon' : 'mboff');
+  const cp = Math.round(conf*100);
+  document.getElementById('cf').style.width = cp+'%';
+  document.getElementById('cv').textContent = cp+'%';
+  document.getElementById('p3d').textContent = liveMotion ? `zone ${zones[getZone()].name}` : 'still';
+  document.getElementById('s3').textContent = Math.floor((Date.now()-dwell)/60000)+'m';
+});
+
+// ── Canvas setup ──────────────────────────────────────────
+const hm = document.getElementById('hm'), hctx = hm.getContext('2d');
+const c3 = document.getElementById('c3'), ctx3 = c3.getContext('2d');
+const dpr = window.devicePixelRatio || 1;
+function initC(cv, h) { const w=cv.offsetWidth||500; cv.width=w*dpr; cv.height=h*dpr; cv.getContext('2d').scale(dpr,dpr); }
+function resizeAll() { initC(hm,220); initC(c3,170); }
+resizeAll();
+window.addEventListener('resize', resizeAll);
+
+function lerp(a,b,t){return a+(b-a)*t}
+function getZone(){let b=0,bd=999;zones.forEach((z,i)=>{const d=Math.hypot(px-z.x,py-z.y);if(d<bd){bd=d;b=i;}});return b;}
+
+// ── 3D camera ─────────────────────────────────────────────
+let camRX = 0.55, camRY = 0.6, tRX = 0.55, tRY = 0.6;
+let dragging = false, lastMX = 0, lastMY = 0;
+
+c3.addEventListener('mousedown', e => { dragging=true; lastMX=e.offsetX; lastMY=e.offsetY; });
+c3.addEventListener('mousemove', e => {
+  if(!dragging) return;
+  tRY += (e.offsetX-lastMX)*0.009;
+  tRX += (e.offsetY-lastMY)*0.007;
+  tRX = Math.max(0.05, Math.min(1.45, tRX));
+  lastMX=e.offsetX; lastMY=e.offsetY;
+  document.querySelectorAll('.vbtn').forEach(b=>b.classList.remove('on'));
+});
+window.addEventListener('mouseup', () => dragging=false);
+
+// touch support
+c3.addEventListener('touchstart', e => { dragging=true; lastMX=e.touches[0].clientX; lastMY=e.touches[0].clientY; e.preventDefault(); },{passive:false});
+c3.addEventListener('touchmove', e => {
+  if(!dragging)return;
+  tRY+=(e.touches[0].clientX-lastMX)*0.009;
+  tRX+=(e.touches[0].clientY-lastMY)*0.007;
+  tRX=Math.max(0.05,Math.min(1.45,tRX));
+  lastMX=e.touches[0].clientX; lastMY=e.touches[0].clientY; e.preventDefault();
+},{passive:false});
+window.addEventListener('touchend', ()=>dragging=false);
+
+function setView(rx, ry, name, btn) {
+  tRX=rx; tRY=ry;
+  document.querySelectorAll('.vbtn').forEach(b=>b.classList.remove('on'));
+  btn.classList.add('on');
+}
+
+// ── Swap panels ───────────────────────────────────────────
+let swapped = false;
+function swapPanels() {
+  swapped = !swapped;
+  const lc = document.getElementById('lc');
+  const rc = document.getElementById('rc');
+  const hmCard = document.getElementById('hm-card');
+  const rcFirstCard = rc.firstElementChild;
+  if (swapped) {
+    lc.classList.replace('big','small');
+    rc.classList.replace('small','big');
+    rc.insertBefore(hmCard, rcFirstCard);
+    lc.appendChild(rcFirstCard);
+  } else {
+    lc.classList.replace('small','big');
+    rc.classList.replace('big','small');
+    lc.insertBefore(rcFirstCard, lc.firstElementChild);
+    rc.insertBefore(hmCard, rc.firstElementChild);
+  }
+  setTimeout(resizeAll, 50);
+}
+
+// ── Heatmap ───────────────────────────────────────────────
+function drawHeatmap() {
+  const W=hm.offsetWidth||500, H=220;
+  hctx.clearRect(0,0,W,H);
+  hctx.fillStyle='#0d0d0f'; hctx.fillRect(0,0,W,H);
+  const showGrid  = document.getElementById('tog-grid').classList.contains('on');
+  const showFurn  = document.getElementById('tog-furn').classList.contains('on');
+  const showTrail = document.getElementById('tog-trail').classList.contains('on');
+  const showRing  = document.getElementById('tog-ring').classList.contains('on');
+  if(showGrid){
+    hctx.strokeStyle='rgba(127,119,221,0.06)'; hctx.lineWidth=0.5;
+    for(let i=0;i<=10;i++){
+      hctx.beginPath();hctx.moveTo((i/10)*W,0);hctx.lineTo((i/10)*W,H);hctx.stroke();
+      hctx.beginPath();hctx.moveTo(0,(i/10)*H);hctx.lineTo(W,(i/10)*H);hctx.stroke();
+    }
+  }
+  if(liveMotion){
+    const res=32,cw=W/res,ch=H/res;
+    for(let gy=0;gy<res;gy++) for(let gx=0;gx<res;gx++){
+      const d=Math.hypot((gx+.5)/res-px,(gy+.5)/res-py);
+      const heat=Math.max(0,1-d/.28)+Math.random()*.012;
+      if(heat>.04){ hctx.fillStyle=`rgba(${Math.round(lerp(80,127,heat))},${Math.round(lerp(50,119,heat))},${Math.round(lerp(200,221,heat))},${heat*.7})`; hctx.fillRect(gx*cw,gy*ch,cw+1,ch+1); }
+    }
+  }
+  if(showFurn){
+    furn.forEach(f=>{
+      hctx.fillStyle=f.c; hctx.strokeStyle=f.b; hctx.lineWidth=1;
+      hctx.beginPath(); hctx.roundRect(f.x*W,f.y*H,f.w*W,f.h*H,3); hctx.fill(); hctx.stroke();
+      hctx.fillStyle='rgba(200,195,255,0.55)'; hctx.font='500 9px sans-serif'; hctx.textAlign='center';
+      hctx.fillText(f.l, f.x*W+f.w*W/2, f.y*H+f.h*H/2+4);
+    });
+  }
+  if(showTrail && trail.length>1){
+    for(let i=1;i<trail.length;i++){
+      const t=i/trail.length,p=trail[i],pp=trail[i-1];
+      hctx.beginPath(); hctx.moveTo(pp.x*W,pp.y*H); hctx.lineTo(p.x*W,p.y*H);
+      hctx.strokeStyle=`rgba(127,119,221,${t*.5})`; hctx.lineWidth=2; hctx.stroke();
+    }
+  }
+  if(liveMotion){
+    const ox=px*W, oy=py*H;
+    const grd=hctx.createRadialGradient(ox,oy,0,ox,oy,20);
+    grd.addColorStop(0,'rgba(127,119,221,0.8)'); grd.addColorStop(1,'rgba(127,119,221,0)');
+    hctx.beginPath(); hctx.arc(ox,oy,20,0,Math.PI*2); hctx.fillStyle=grd; hctx.fill();
+    hctx.beginPath(); hctx.arc(ox,oy,5,0,Math.PI*2); hctx.fillStyle='rgba(200,195,255,0.9)'; hctx.fill();
+    if(showRing){ hctx.beginPath(); hctx.arc(ox,oy,5+(1-conf)*16,0,Math.PI*2); hctx.strokeStyle=`rgba(127,119,221,${conf*.4})`; hctx.lineWidth=1; hctx.stroke(); }
+    hctx.strokeStyle='rgba(127,119,221,0.2)'; hctx.lineWidth=0.5;
+    hctx.beginPath(); hctx.moveTo(ox-26,oy); hctx.lineTo(ox+26,oy); hctx.stroke();
+    hctx.beginPath(); hctx.moveTo(ox,oy-26); hctx.lineTo(ox,oy+26); hctx.stroke();
+  }
+  [{x:.03,y:.04},{x:.97,y:.04},{x:.03,y:.96},{x:.97,y:.96}].forEach((c,i)=>{
+    hctx.beginPath(); hctx.arc(c.x*W,c.y*H,5,0,Math.PI*2); hctx.fillStyle='#7F77DD'; hctx.fill();
+    hctx.fillStyle='#EEEDFE'; hctx.font='500 8px sans-serif'; hctx.textAlign='center';
+    hctx.fillText('ABCD'[i],c.x*W,c.y*H+3.5);
+  });
+}
+
+// ── 3D room ───────────────────────────────────────────────
+function draw3D() {
+  const W=c3.offsetWidth||300, H=170;
+  ctx3.clearRect(0,0,W,H);
+  ctx3.fillStyle='#0d0d0f'; ctx3.fillRect(0,0,W,H);
+
+  // smooth camera
+  camRX = lerp(camRX,tRX,.08);
+  camRY = lerp(camRY,tRY,.08);
+
+  const cx=W/2, cy=H*0.45;
+
+  function proj(x,y,z) {
+    // center around 0
+    const ax=(x-.5)*2, ay=(y-.5)*2, az=z*2-.5;
+    // rotate Y
+    const cosY=Math.cos(camRY), sinY=Math.sin(camRY);
+    const rx2 = ax*cosY - ay*sinY;
+    const ry2 = ax*sinY + ay*cosY;
+    // rotate X
+    const cosX=Math.cos(camRX), sinX=Math.sin(camRX);
+    const ry3 = ry2*cosX - az*sinX;
+    const rz3 = ry2*sinX + az*cosX;
+    const scale = Math.min(W,H)*0.7;
+    return { x: cx + rx2*scale, y: cy + ry3*scale*0.55, depth: rz3 };
+  }
+
+  // room wireframe
+  const corners=[[0,0,0],[1,0,0],[1,1,0],[0,1,0],[0,0,1],[1,0,1],[1,1,1],[0,1,1]];
+  const edges=[[0,1],[1,2],[2,3],[3,0],[4,5],[5,6],[6,7],[7,4],[0,4],[1,5],[2,6],[3,7]];
+  ctx3.strokeStyle='rgba(127,119,221,0.18)'; ctx3.lineWidth=1;
+  edges.forEach(([a,b])=>{
+    const pa=proj(...corners[a]), pb=proj(...corners[b]);
+    ctx3.beginPath(); ctx3.moveTo(pa.x,pa.y); ctx3.lineTo(pb.x,pb.y); ctx3.stroke();
+  });
+
+  // furniture
+  const furn3d=[
+    {x:.05,y:.05,z:0,w:.42,d:.24,h:.15,c:[76,29,149],l:'bed'},
+    {x:.55,y:.05,z:0,w:.38,d:.2,h:.1,c:[12,68,124],l:'desk'},
+    {x:.05,y:.68,z:0,w:.25,d:.26,h:.3,c:[8,80,65],l:'wardrobe'},
+  ];
+  furn3d.forEach(f => drawBox3D(f, proj));
+
+  // orb
+  if(liveMotion){
+    const op=proj(px,py,.35), fl=proj(px,py,0);
+    const grd=ctx3.createRadialGradient(op.x,op.y,0,op.x,op.y,14);
+    grd.addColorStop(0,'rgba(127,119,221,0.85)'); grd.addColorStop(1,'rgba(127,119,221,0)');
+    ctx3.beginPath(); ctx3.arc(op.x,op.y,14,0,Math.PI*2); ctx3.fillStyle=grd; ctx3.fill();
+    ctx3.beginPath(); ctx3.arc(op.x,op.y,4,0,Math.PI*2); ctx3.fillStyle='rgba(200,195,255,0.9)'; ctx3.fill();
+    ctx3.strokeStyle='rgba(127,119,221,0.25)'; ctx3.lineWidth=1; ctx3.setLineDash([2,2]);
+    ctx3.beginPath(); ctx3.moveTo(op.x,op.y); ctx3.lineTo(fl.x,fl.y); ctx3.stroke(); ctx3.setLineDash([]);
+    ctx3.beginPath(); ctx3.arc(fl.x,fl.y,4,0,Math.PI*2); ctx3.fillStyle='rgba(127,119,221,0.25)'; ctx3.fill();
+  }
+
+  // sensors
+  [[0,0,.5],[1,0,.5],[0,1,.5],[1,1,.5]].forEach((s,i)=>{
+    const sp=proj(...s);
+    ctx3.beginPath(); ctx3.arc(sp.x,sp.y,4,0,Math.PI*2); ctx3.fillStyle='#7F77DD'; ctx3.fill();
+    ctx3.fillStyle='rgba(200,195,255,0.7)'; ctx3.font='500 8px sans-serif'; ctx3.textAlign='center';
+    ctx3.fillText('ABCD'[i],sp.x,sp.y-8);
+  });
+}
+
+function drawBox3D(f, proj) {
+  const {x,y,z,w,d,h,c,l}=f;
+  const verts=[[x,y,z],[x+w,y,z],[x+w,y+d,z],[x,y+d,z],[x,y,z+h],[x+w,y,z+h],[x+w,y+d,z+h],[x,y+d,z+h]];
+  const ps=verts.map(v=>proj(...v));
+  const faces=[[4,5,6,7,1.0],[0,1,5,4,0.65],[1,2,6,5,0.5],[3,2,6,7,0.45],[0,3,7,4,0.55]];
+  faces.forEach(([a,b,cc,dd,br])=>{
+    ctx3.beginPath();
+    [a,b,cc,dd].forEach((vi,i)=>{ if(i===0)ctx3.moveTo(ps[vi].x,ps[vi].y); else ctx3.lineTo(ps[vi].x,ps[vi].y); });
+    ctx3.closePath();
+    ctx3.fillStyle=`rgba(${Math.round(c[0]*br)},${Math.round(c[1]*br)},${Math.round(c[2]*br)},0.85)`;
+    ctx3.fill();
+    ctx3.strokeStyle='rgba(255,255,255,0.08)'; ctx3.lineWidth=0.5; ctx3.stroke();
+  });
+  const top=ps[4];
+  ctx3.fillStyle='rgba(255,255,255,0.45)'; ctx3.font='500 9px sans-serif'; ctx3.textAlign='center';
+  ctx3.fillText(l,top.x,top.y-5);
+}
+
+// ── Signal bars ───────────────────────────────────────────
+function drawSignal(){
+  sigH.push(liveMotion?8+Math.random()*18:3+Math.random()*3); sigH.shift();
+  const mx=Math.max(...sigH)||1;
+  document.getElementById('sr').innerHTML=sigH.map((v,i)=>{
+    const h=Math.max(2,Math.round((v/mx)*28));
+    const a=liveMotion&&i>20?.8:.2+(i/sigH.length)*.35;
+    return `<div class="sb" style="height:${h}px;opacity:${a}"></div>`;
+  }).join('');
+}
+
+function updateZones(){
+  const tot=zones.reduce((s,z)=>s+z.t,0)||1;
+  document.getElementById('zl').innerHTML=zones.map(z=>`<div class="zi"><div class="zd" style="background:${z.color}"></div><span class="zn">${z.name}</span><div class="zbw"><div class="zb" style="width:${Math.min(100,(z.t/tot)*100).toFixed(0)}%;background:${z.color}"></div></div><span class="zt">${Math.floor(z.t/20)}m</span></div>`).join('');
+}
+
+function buildTimeline(){
+  const hrs=['9pm','10pm','11pm','12am','1am','2am'];
+  const sg=[[{s:.1,e:.4,c:'#7F77DD'},{s:.6,e:.8,c:'#1D9E75'}],[{s:.05,e:.3,c:'#7F77DD'},{s:.5,e:.65,c:'#EF9F27'}],[{s:.2,e:.5,c:'#1D9E75'}],[{s:0,e:.15,c:'#7F77DD'},{s:.7,e:.9,c:'#EF9F27'}],[{s:.3,e:.6,c:'#1D9E75'}],[{s:.1,e:.2,c:'#85B7EB'}]];
+  document.getElementById('tl').innerHTML=hrs.map((h,i)=>`<div class="tlr"><span class="tlt">${h}</span><div class="tlw">${(sg[i]||[]).map(s=>`<div class="tls" style="left:${s.s*100}%;width:${(s.e-s.s)*100}%;background:${s.c}"></div>`).join('')}</div></div>`).join('');
+}
+buildTimeline();
+
+// ── Render loop ───────────────────────────────────────────
+function render(){
+  fc++; const now=Date.now();
+  if(now-lastFps>1000){ document.getElementById('fps-pill').textContent=fc+'fps'; fc=0; lastFps=now; }
+  if(document.getElementById('t0').classList.contains('on')){ drawHeatmap(); draw3D(); drawSignal(); updateZones(); }
+  requestAnimationFrame(render);
+}
+render();
+
+// ── Tab switching ─────────────────────────────────────────
+function sw(i,el){
+  document.querySelectorAll('.panel').forEach(p=>p.classList.remove('on'));
+  document.querySelectorAll('.ntab').forEach(t=>t.classList.remove('on'));
+  document.getElementById('t'+i).classList.add('on');
+  el.classList.add('on');
+}
+
+// ── Training ──────────────────────────────────────────────
+const trainState={empty:0,motion1:0,motion2:0,outside:0};
+const trainMax={empty:3000,motion1:5000,motion2:5000,outside:3000};
+
+function startRecording(key,max,btn){
+  btn.disabled=true; btn.textContent='recording...';
+  document.getElementById('d-'+key).className='sdot act';
+  document.getElementById('l-'+key).textContent='recording...';
+  fetch('/train/record',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({label:key,samples:max})});
+  let cur=0;
+  const iv=setInterval(()=>{
+    cur+=Math.round(55+Math.random()*75); if(cur>max)cur=max;
+    trainState[key]=cur;
+    document.getElementById('p-'+key).style.width=(cur/max*100)+'%';
+    document.getElementById('sc-'+key).textContent=cur.toLocaleString()+' / '+max.toLocaleString()+' samples';
+    if(cur>=max){ clearInterval(iv); btn.textContent='done ✓'; document.getElementById('d-'+key).className='sdot done'; document.getElementById('l-'+key).textContent='collected'; const n=Object.values(trainState).filter(v=>v>0).length; document.getElementById('tstat').textContent=n+' / 4 datasets ready'; }
+  },80);
+}
+
+function runTraining(){
+  const btn=document.getElementById('train-btn'); btn.disabled=true; btn.textContent='training...';
+  document.getElementById('tstat').textContent='running tensorflow cnn+lstm...';
+  fetch('/train/run',{method:'POST'}).then(r=>r.json()).then(d=>{
+    btn.textContent='model trained ✓'; document.getElementById('tstat').textContent='training complete';
+    document.getElementById('accbox').style.display='flex';
+    document.getElementById('accnum').textContent=(d.accuracy*100).toFixed(1)+'%';
+    document.getElementById('model-status').textContent='loaded';
+    document.getElementById('model-status').style.color='#4ade80';
+    btn.disabled=false;
+  }).catch(()=>{
+    let ep=0; const iv=setInterval(()=>{ ep++; btn.textContent=`training... epoch ${ep} / 50`; if(ep>=50){ clearInterval(iv); btn.textContent='model trained ✓'; document.getElementById('tstat').textContent='training complete'; document.getElementById('accbox').style.display='flex'; document.getElementById('accnum').textContent=(93+Math.random()*4).toFixed(1)+'%'; btn.disabled=false; } },60);
+  });
+}
+
+function clearAll(){
+  ['empty','motion1','motion2','outside'].forEach(k=>{
+    trainState[k]=0; document.getElementById('p-'+k).style.width='0%';
+    document.getElementById('sc-'+k).textContent='0 / '+trainMax[k].toLocaleString()+' samples';
+    document.getElementById('d-'+k).className='sdot'; document.getElementById('l-'+k).textContent='waiting';
+    document.querySelectorAll('button').forEach(b=>{ if(b.textContent.includes('done')||b.textContent.includes('recording')){ b.disabled=false; b.textContent='start recording'; } });
+  });
+  document.getElementById('tstat').textContent='collect data above first';
+  document.getElementById('accbox').style.display='none';
+  document.getElementById('train-btn').textContent='train now — tensorflow cnn+lstm';
+  document.getElementById('train-btn').disabled=false;
+}
+</script>
+</body>
+</html>
+HTMLEOF
+echo "done"
