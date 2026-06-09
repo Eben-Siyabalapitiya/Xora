@@ -13,9 +13,9 @@
 #include "esp_wifi.h"
 
 // ---- CHANGE THESE ----
-const char* SSID      = BELL991;      // same WiFi as transmitter
-const char* PASSWORD  = 531D1374E947;  // same WiFi as transmitter
-const char* LAPTOP_IP = 192.168.2.32;      // same IP as transmitter
+const char* SSID      = "BELL991";      // same WiFi as transmitter
+const char* PASSWORD  = "531D1374E947";  // same WiFi as transmitter
+const char* LAPTOP_IP = "192.168.2.32";      // same IP as transmitter
 const int   UDP_PORT  = 5005;
 const char* BOARD_ID  = "B";                 // ← change to "C" or "D" for other boards
 // ----------------------
