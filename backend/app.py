@@ -34,7 +34,7 @@ csi_buffers = {bid: [] for bid in BOARD_IDS}
 baseline    = {bid: None for bid in BOARD_IDS}
 model       = None                # loaded after training
 
-# ─── Zones (match your room layout) ───────────────────────
+# ─── Zones (match my room layout) change later
 ZONES = [
     {'name': 'desk',   'x': 0.78, 'y': 0.22},
     {'name': 'bed',    'x': 0.22, 'y': 0.75},
@@ -51,7 +51,7 @@ def get_zone(px, py):
             best = z['name']
     return best
 
-# ─── UDP listener (runs in background thread) ──────────────
+# ─── UDP listener 
 def udp_listener():
     sock = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
     sock.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
