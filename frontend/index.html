@@ -321,16 +321,16 @@ const zones=[
 // BOTTOM WALL: s.table (left of door), door (center-bottom)
 // RIGHT WALL: closet (recessed, middle)
 const furn2d=[
-  // bed — tall, flush left wall, skinny, goes full height
+  // bed 
   {x:0,   y:.08, w:.17, h:.84, c:'rgba(29,158,117,0.2)', b:'rgba(29,158,117,0.5)', l:'bed'},
-  // main table — top wall center, flush
-  {x:.24, y:0,   w:.30, h:.16, c:'rgba(127,119,221,0.2)',b:'rgba(127,119,221,0.5)',l:'table'},
-  // cabinet — top wall right corner, flush both walls
+  // main table 
+  {x:.30, y:0,   w:.30, h:.16, c:'rgba(127,119,221,0.2)',b:'rgba(127,119,221,0.5)',l:'table'},
+  // cabinet 
   {x:.82, y:0,   w:.18, h:.22, c:'rgba(192,132,252,0.2)',b:'rgba(192,132,252,0.5)',l:'cabinet'},
   // closet — RIGHT WALL, recessed inward (like door but on right side)
   {x:.82, y:.3,  w:.18, h:.38, c:'rgba(133,183,235,0.2)',b:'rgba(133,183,235,0.5)',l:'closet', wall:'right'},
   // small table — bottom wall, left of door
-  {x:.18, y:.84, w:.2,  h:.16, c:'rgba(127,119,221,0.15)',b:'rgba(127,119,221,0.35)',l:'s.table'},
+  {x:.18, y:.87, w:.2,  h:.16, c:'rgba(127,119,221,0.15)',b:'rgba(127,119,221,0.35)',l:'s.table'},
   // door — bottom wall center
   {x:.4,  y:.9,  w:.18, h:.1,  c:'rgba(239,159,39,0.15)', b:'rgba(239,159,39,0.5)', l:'door', isDoor:true},
 ];
@@ -338,15 +338,15 @@ const furn2d=[
 // 3D furniture — same layout lifted into 3D
 const furn3d=[
   // bed — tall flush left, skinny
-  {x:0,   y:.08, z:0, w:.17, d:.84, h:.18, c:[29,158,117],  l:'bed'},
+  {x:0,   y:.08, z:0, w:.17, d:.75, h:.18, c:[29,158,117],  l:'bed'},
   // table top wall
-  {x:.24, y:0,   z:0, w:.30, d:.14, h:.12, c:[127,119,221], l:'table'},
+  {x:.30, y:0,   z:0, w:.30, d:.14, h:.20, c:[127,119,221], l:'table'},
   // cabinet top-right corner
-  {x:.84, y:0,   z:0, w:.16, d:.20, h:.38, c:[192,132,252], l:'cabinet'},
+  {x:.84, y:0,   z:0, w:.16, d:.20, h:.50, c:[192,132,252], l:'cabinet'},
   // closet right wall recessed — extra depth inward
   {x:.8,  y:.3,  z:0, w:.2,  d:.38, h:.28, c:[133,183,235], l:'closet'},
   // small table bottom
-  {x:.18, y:.86, z:0, w:.18, d:.12, h:.10, c:[100,100,200],  l:'s.table'},
+  {x:.18, y:.87, z:0, w:.18, d:.12, h:.15, c:[100,100,200],  l:'s.table'},
 ];
 
 socket.on('state',d=>{
