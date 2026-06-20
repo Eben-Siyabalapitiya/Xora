@@ -34,8 +34,10 @@ body{background:var(--bg);color:var(--text);font-family:-apple-system,BlinkMacSy
 .boards-row{display:flex;gap:6px;flex:1;align-items:center;flex-wrap:wrap}
 .chip{font-size:10px;padding:3px 9px;border-radius:20px;border:1px solid var(--border2);color:var(--text2);display:flex;align-items:center;gap:5px;white-space:nowrap;cursor:default;transition:border-color .2s}
 .chip:hover{border-color:rgba(127,119,221,0.4)}
-.cdot{width:5px;height:5px;border-radius:50%;background:var(--green);box-shadow:0 0 6px var(--green);flex-shrink:0}
-.cdot.tx{background:#EF9F27;box-shadow:0 0 6px #EF9F27}
+.cdot{width:5px;height:5px;border-radius:50%;background:var(--text3);flex-shrink:0;transition:all .3s}
+.cdot.on{background:var(--green);box-shadow:0 0 6px var(--green)}
+.cdot.tx.on{background:#EF9F27;box-shadow:0 0 6px #EF9F27}
+.chip.offline{opacity:.5}
 .top-actions{display:flex;align-items:center;gap:6px;flex-shrink:0}
 .pill{font-size:10px;padding:3px 9px;border-radius:20px;font-weight:500;border:1px solid var(--border2);color:var(--text2);white-space:nowrap}
 .pill-live{background:var(--green-bg);color:var(--green);border-color:var(--green-border);display:flex;align-items:center;gap:5px}
@@ -154,10 +156,10 @@ canvas{display:block;width:100%}
     <div><div class="logo-text">Xora</div><div class="logo-sub">Wifi Motion</div></div>
   </div>
   <div class="boards-row">
-    <div class="chip"><div class="cdot tx"></div>ESP32 (TX) A</div>
-    <div class="chip"><div class="cdot"></div>ESP32 (RX) B</div>
-    <div class="chip"><div class="cdot"></div>ESP32 (RX) C</div>
-    <div class="chip"><div class="cdot"></div>ESP32 (RX) D</div>
+    <div class="chip offline" id="chip-A"><div class="cdot tx" id="dot-A"></div>ESP32 (TX) A</div>
+    <div class="chip offline" id="chip-B"><div class="cdot" id="dot-B"></div>ESP32 (RX) B</div>
+    <div class="chip offline" id="chip-C"><div class="cdot" id="dot-C"></div>ESP32 (RX) C</div>
+    <div class="chip offline" id="chip-D"><div class="cdot" id="dot-D"></div>ESP32 (RX) D</div>
   </div>
   <div class="top-actions">
     <span class="pill pill-live"><div class="live-dot"></div>live</span>
@@ -270,10 +272,10 @@ canvas{display:block;width:100%}
       <div class="srow"><span class="slbl">model loaded</span><span class="sval" id="model-status" style="color:var(--text3)">none</span></div>
     </div>
     <div class="scard"><div class="sct">boards</div>
-      <div class="srow"><span class="slbl">ESP32 (TX) A</span><span class="sval" style="display:flex;align-items:center;gap:5px"><div class="cdot tx"></div>transmitter</span></div>
-      <div class="srow"><span class="slbl">ESP32 (RX) B</span><span class="sval" style="display:flex;align-items:center;gap:5px"><div class="cdot"></div>192.168.2.51</span></div>
-      <div class="srow"><span class="slbl">ESP32 (RX) C</span><span class="sval" style="display:flex;align-items:center;gap:5px"><div class="cdot"></div>192.168.2.52</span></div>
-      <div class="srow"><span class="slbl">ESP32 (RX) D</span><span class="sval" style="display:flex;align-items:center;gap:5px"><div class="cdot"></div>192.168.2.53</span></div>
+      <div class="srow"><span class="slbl">ESP32 (TX) A</span><span class="sval" style="display:flex;align-items:center;gap:5px"><div class="cdot tx" id="dot-settings-A"></div>transmitter</span></div>
+      <div class="srow"><span class="slbl">ESP32 (RX) B</span><span class="sval" style="display:flex;align-items:center;gap:5px"><div class="cdot" id="dot-settings-B"></div>192.168.2.51</span></div>
+      <div class="srow"><span class="slbl">ESP32 (RX) C</span><span class="sval" style="display:flex;align-items:center;gap:5px"><div class="cdot" id="dot-settings-C"></div>192.168.2.52</span></div>
+      <div class="srow"><span class="slbl">ESP32 (RX) D</span><span class="sval" style="display:flex;align-items:center;gap:5px"><div class="cdot" id="dot-settings-D"></div>192.168.2.53</span></div>
     </div>
     <div class="scard"><div class="sct">display</div>
       <div class="srow"><span class="slbl">show furniture</span><div class="tog on" id="tog-furn" onclick="this.classList.toggle('on')"></div></div>
@@ -299,7 +301,36 @@ canvas{display:block;width:100%}
 // ── Socket ────────────────────────────────────────────────
 const socket=io();
 socket.on('connect',()=>{});
-socket.on('disconnect',()=>{});
+socket.on('disconnect',()=>{
+  ['A','B','C','D'].forEach(b=>setBoardOffline(b));
+});
+
+// ── Board connection tracking ────────────────────────────
+const lastSeen={A:0,B:0,C:0,D:0};
+const BOARD_TIMEOUT=3000; // ms — mark offline if no data in 3s
+
+function setBoardOnline(id){
+  lastSeen[id]=Date.now();
+  document.getElementById('chip-'+id).classList.remove('offline');
+  document.getElementById('dot-'+id).classList.add('on');
+  const sd=document.getElementById('dot-settings-'+id);
+  if(sd)sd.classList.add('on');
+}
+function setBoardOffline(id){
+  document.getElementById('chip-'+id).classList.add('offline');
+  document.getElementById('dot-'+id).classList.remove('on');
+  const sd=document.getElementById('dot-settings-'+id);
+  if(sd)sd.classList.remove('on');
+}
+function checkBoardTimeouts(){
+  const now=Date.now();
+  ['A','B','C','D'].forEach(id=>{
+    if(lastSeen[id]>0 && now-lastSeen[id]>BOARD_TIMEOUT){
+      setBoardOffline(id);
+    }
+  });
+}
+setInterval(checkBoardTimeouts,1000);
 
 // ── State ─────────────────────────────────────────────────
 let px=0.3,py=0.5,trail=[],conf=0,dwell=Date.now(),fc=0,lastFps=Date.now();
@@ -321,16 +352,16 @@ const zones=[
 // BOTTOM WALL: s.table (left of door), door (center-bottom)
 // RIGHT WALL: closet (recessed, middle)
 const furn2d=[
-  // bed 
-  {x:0,   y:.08, w:.17, h:.84, c:'rgba(29,158,117,0.2)', b:'rgba(29,158,117,0.5)', l:'bed'},
-  // main table 
-  {x:.30, y:0,   w:.30, h:.16, c:'rgba(127,119,221,0.2)',b:'rgba(127,119,221,0.5)',l:'table'},
-  // cabinet 
+  // bed — tall, flush left wall, skinny, goes full height
+  {x:0,   y:.08, w:.14, h:.84, c:'rgba(29,158,117,0.2)', b:'rgba(29,158,117,0.5)', l:'bed'},
+  // main table — top wall center, flush
+  {x:.18, y:0,   w:.52, h:.16, c:'rgba(127,119,221,0.2)',b:'rgba(127,119,221,0.5)',l:'table'},
+  // cabinet — top wall right corner, flush both walls
   {x:.82, y:0,   w:.18, h:.22, c:'rgba(192,132,252,0.2)',b:'rgba(192,132,252,0.5)',l:'cabinet'},
   // closet — RIGHT WALL, recessed inward (like door but on right side)
   {x:.82, y:.3,  w:.18, h:.38, c:'rgba(133,183,235,0.2)',b:'rgba(133,183,235,0.5)',l:'closet', wall:'right'},
   // small table — bottom wall, left of door
-  {x:.18, y:.87, w:.2,  h:.16, c:'rgba(127,119,221,0.15)',b:'rgba(127,119,221,0.35)',l:'s.table'},
+  {x:.18, y:.84, w:.2,  h:.16, c:'rgba(127,119,221,0.15)',b:'rgba(127,119,221,0.35)',l:'s.table'},
   // door — bottom wall center
   {x:.4,  y:.9,  w:.18, h:.1,  c:'rgba(239,159,39,0.15)', b:'rgba(239,159,39,0.5)', l:'door', isDoor:true},
 ];
@@ -338,18 +369,24 @@ const furn2d=[
 // 3D furniture — same layout lifted into 3D
 const furn3d=[
   // bed — tall flush left, skinny
-  {x:0,   y:.08, z:0, w:.17, d:.75, h:.18, c:[29,158,117],  l:'bed'},
+  {x:0,   y:.08, z:0, w:.12, d:.84, h:.18, c:[29,158,117],  l:'bed'},
   // table top wall
-  {x:.30, y:0,   z:0, w:.30, d:.14, h:.20, c:[127,119,221], l:'table'},
+  {x:.18, y:0,   z:0, w:.52, d:.14, h:.12, c:[127,119,221], l:'table'},
   // cabinet top-right corner
-  {x:.84, y:0,   z:0, w:.16, d:.20, h:.50, c:[192,132,252], l:'cabinet'},
+  {x:.84, y:0,   z:0, w:.16, d:.20, h:.38, c:[192,132,252], l:'cabinet'},
   // closet right wall recessed — extra depth inward
   {x:.8,  y:.3,  z:0, w:.2,  d:.38, h:.28, c:[133,183,235], l:'closet'},
   // small table bottom
-  {x:.18, y:.87, z:0, w:.18, d:.12, h:.15, c:[100,100,200],  l:'s.table'},
+  {x:.18, y:.86, z:0, w:.18, d:.12, h:.10, c:[100,100,200],  l:'s.table'},
 ];
 
 socket.on('state',d=>{
+  // Mark whichever boards actually sent data as online
+  if(d.boards_active){
+    ['A','B','C','D'].forEach(b=>{
+      if(d.boards_active.includes(b)) setBoardOnline(b);
+    });
+  }
   px=d.px;py=d.py;conf=d.confidence;
   liveMotion=d.motion;liveVariance=d.variance;liveEvents=d.events;
   if(liveMotion){trail.push({x:px,y:py});if(trail.length>50)trail.shift();zones[getZone()].t+=.04;}

@@ -1,9 +1,8 @@
 import threading
 import socket
 import numpy as np
-from flask import Flask, render_template, jsonify
+from flask import Flask, render_template, jsonify, request
 from flask_socketio import SocketIO
-import json
 import time
 import os
 
@@ -11,17 +10,15 @@ app = Flask(__name__, template_folder='../frontend')
 app.config['SECRET_KEY'] = 'xora-secret'
 socketio = SocketIO(app, cors_allowed_origins='*')
 
-# ─── Config ───────────────────────────────────────────────
-UDP_PORT     = 5005
-BOARD_IDS    = ['B', 'C', 'D']   # receivers
-NUM_SUB      = 52                 # CSI subcarriers
-SMOOTH       = 0.03               # lerp smoothing for orb
-THRESHOLD    = 3.0                # motion detection variance threshold
+UDP_PORT  = 5005
+BOARD_IDS = ['B', 'C', 'D']
+NUM_SUB   = 52
+SMOOTH    = 0.06
+THRESHOLD = 3.0
 
-# ─── Shared state ─────────────────────────────────────────
 state = {
-    'px': 0.5, 'py': 0.5,        # current position (0-1)
-    'tx': 0.5, 'ty': 0.5,        # target position
+    'px': 0.5, 'py': 0.5,
+    'tx': 0.5, 'ty': 0.5,
     'variance': 0.0,
     'motion': False,
     'confidence': 0.0,
@@ -29,17 +26,20 @@ state = {
     'events': 0,
 }
 
-# Latest raw CSI from each board
 csi_buffers = {bid: [] for bid in BOARD_IDS}
 baseline    = {bid: None for bid in BOARD_IDS}
-model       = None                # loaded after training
+last_seen   = {bid: 0    for bid in BOARD_IDS}
+model       = None
+model_path  = os.path.join(os.path.dirname(os.path.abspath(__file__)), 'xora_model.h5')
 
-# ─── Zones (match my room layout) change later
 ZONES = [
-    {'name': 'desk',   'x': 0.78, 'y': 0.22},
-    {'name': 'bed',    'x': 0.22, 'y': 0.75},
-    {'name': 'door',   'x': 0.50, 'y': 0.06},
-    {'name': 'center', 'x': 0.50, 'y': 0.50},
+    {'name': 'bed',     'x': 0.10, 'y': 0.35},
+    {'name': 'table',   'x': 0.50, 'y': 0.15},
+    {'name': 'cabinet', 'x': 0.88, 'y': 0.15},
+    {'name': 'closet',  'x': 0.88, 'y': 0.60},
+    {'name': 's_table', 'x': 0.25, 'y': 0.70},
+    {'name': 'door',    'x': 0.50, 'y': 0.92},
+    {'name': 'center',  'x': 0.50, 'y': 0.50},
 ]
 
 def get_zone(px, py):
@@ -51,55 +51,53 @@ def get_zone(px, py):
             best = z['name']
     return best
 
-# ─── UDP listener 
 def udp_listener():
     sock = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
     sock.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
     sock.bind(('0.0.0.0', UDP_PORT))
     print(f'[xora] UDP listening on port {UDP_PORT}')
-
     while True:
         try:
-            data, addr = sock.recvfrom(4096)
+            data, _ = sock.recvfrom(4096)
             parse_packet(data)
         except Exception as e:
             print(f'[udp] error: {e}')
 
 def parse_packet(raw):
-    """
-    Expected packet format from ESP32 receiver (JSON):
-    {"id": "B", "csi": [32, 14, 9, 41, ...]}
-    """
+    decoded = raw.decode('utf-8', errors='ignore').strip()
+    if decoded.startswith('XORA_TX') or not decoded.startswith('XORA_CSI'):
+        return
     try:
-        pkt    = json.loads(raw.decode('utf-8'))
-        bid    = pkt.get('id')
-        csi    = np.array(pkt.get('csi', []), dtype=float)
-
-        if bid not in BOARD_IDS or len(csi) == 0:
+        parts = decoded.split(',')
+        if len(parts) < 4:
             return
-
-        # Subtract baseline if calibrated
+        bid = parts[1]
+        if bid not in BOARD_IDS:
+            return
+        csi = np.array([float(x) for x in parts[3:]], dtype=float)
+        if len(csi) == 0:
+            return
+        if len(csi) >= NUM_SUB:
+            csi = csi[:NUM_SUB]
+        else:
+            csi = np.pad(csi, (0, NUM_SUB - len(csi)))
+        last_seen[bid] = time.time()
         if baseline[bid] is not None:
             csi = np.abs(csi - baseline[bid])
-
-        # Keep rolling buffer of last 100 frames per board
         csi_buffers[bid].append(csi)
         if len(csi_buffers[bid]) > 100:
             csi_buffers[bid].pop(0)
-
         process_csi()
-
     except Exception as e:
         print(f'[parse] error: {e}')
 
 def process_csi():
-    """Compute variance per board → estimate position → emit to dashboard."""
     variances = {}
     for bid in BOARD_IDS:
         buf = csi_buffers[bid]
         if len(buf) < 10:
             continue
-        arr = np.array(buf[-10:])          # last 10 frames
+        arr = np.array(buf[-10:])
         variances[bid] = float(np.var(arr))
 
     if len(variances) < 2:
@@ -112,83 +110,155 @@ def process_csi():
     if state['motion']:
         state['events'] += 1
 
-        # Simple weighted position estimate
-        # Board layout: B=top-right, C=bottom-left, D=bottom-right
-        board_positions = {
-            'B': (0.97, 0.03),
-            'C': (0.03, 0.97),
-            'D': (0.97, 0.97),
-        }
-        wx, wy, wt = 0, 0, 0
-        for bid, var in variances.items():
-            if bid in board_positions:
-                bx, by = board_positions[bid]
-                # Higher variance = person closer to opposite side
-                wx += (1 - bx) * var
-                wy += (1 - by) * var
-                wt += var
+        # Use trained model for position if available
+        if model is not None:
+            try:
+                csi_row = []
+                for bid in ['B', 'C', 'D']:
+                    if csi_buffers[bid]:
+                        csi_row.extend(csi_buffers[bid][-1].tolist())
+                    else:
+                        csi_row.extend([0.0] * NUM_SUB)
+                import train as train_module
+                tx, ty = train_module.predict_position(model, np.array(csi_row, dtype=np.float32), model_path)
+                state['tx'] = float(np.clip(tx, 0.0, 1.0))
+                state['ty'] = float(np.clip(ty, 0.0, 1.0))
+                state['confidence'] = min(1.0, total_var / 15.0)
+            except Exception as e:
+                print(f'[predict] error: {e}')
+                _variance_position(variances)
+        else:
+            _variance_position(variances)
 
-        if wt > 0:
-            state['tx'] = wx / wt
-            state['ty'] = wy / wt
-
-        state['confidence'] = min(1.0, total_var / 15.0)
-
-    # Lerp current position toward target
     state['px'] = lerp(state['px'], state['tx'], SMOOTH)
     state['py'] = lerp(state['py'], state['ty'], SMOOTH)
     state['zone'] = get_zone(state['px'], state['py'])
 
-    # Push to dashboard
+    now = time.time()
+    boards_active = [bid for bid in BOARD_IDS if now - last_seen[bid] < 3]
     socketio.emit('state', {
-        'px':        round(state['px'], 3),
-        'py':        round(state['py'], 3),
-        'variance':  state['variance'],
-        'motion':    state['motion'],
-        'confidence': round(state['confidence'], 2),
-        'zone':      state['zone'],
-        'events':    state['events'],
+        'px':          round(state['px'], 3),
+        'py':          round(state['py'], 3),
+        'variance':    state['variance'],
+        'motion':      state['motion'],
+        'confidence':  round(state['confidence'], 2),
+        'zone':        state['zone'],
+        'events':      state['events'],
+        'boards_active': boards_active,
     })
+
+def _variance_position(variances):
+    board_positions = {'B': (0.97, 0.03), 'C': (0.03, 0.97), 'D': (0.97, 0.97)}
+    wx, wy, wt = 0, 0, 0
+    for bid, var in variances.items():
+        if bid in board_positions:
+            bx, by = board_positions[bid]
+            wx += (1 - bx) * var
+            wy += (1 - by) * var
+            wt += var
+    if wt > 0:
+        state['tx'] = wx / wt
+        state['ty'] = wy / wt
+    state['confidence'] = 0.0
 
 def lerp(a, b, t):
     return a + (b - a) * t
 
-# ─── Calibration endpoint ──────────────────────────────────
+def heartbeat_loop():
+    time.sleep(3)
+    while True:
+        try:
+            now = time.time()
+            boards_active = [bid for bid in BOARD_IDS if now - last_seen[bid] < 3]
+            socketio.emit('state', {
+                'px':          round(state['px'], 3),
+                'py':          round(state['py'], 3),
+                'variance':    state['variance'],
+                'motion':      state['motion'],
+                'confidence':  round(state['confidence'], 2),
+                'zone':        state['zone'],
+                'events':      state['events'],
+                'boards_active': boards_active,
+            })
+        except Exception as e:
+            print(f'[heartbeat] error: {e}')
+        time.sleep(1)
+
 @app.route('/calibrate', methods=['POST'])
 def calibrate():
-    """
-    Call this with empty room.
-    Records 30 seconds of CSI and saves mean as baseline.
-    """
     print('[xora] calibrating — keep room empty...')
     samples = {bid: [] for bid in BOARD_IDS}
     start = time.time()
-
     while time.time() - start < 30:
         for bid in BOARD_IDS:
             if csi_buffers[bid]:
                 samples[bid].append(csi_buffers[bid][-1])
         time.sleep(0.1)
-
     for bid in BOARD_IDS:
         if samples[bid]:
             baseline[bid] = np.mean(samples[bid], axis=0)
             print(f'[calibrate] board {bid} baseline saved ({len(samples[bid])} samples)')
-
-    # Save to disk
     np.save('baseline.npy', baseline)
     return jsonify({'status': 'calibrated'})
 
-@app.route('/calibrate/load', methods=['POST'])
-def load_calibration():
-    global baseline
-    if os.path.exists('baseline.npy'):
-        baseline = np.load('baseline.npy', allow_pickle=True).item()
-        print('[xora] baseline loaded from disk')
-        return jsonify({'status': 'loaded'})
-    return jsonify({'status': 'no baseline found'}), 404
+import collect_data
+collect_data.csi_buffers = csi_buffers
 
-# ─── Routes ───────────────────────────────────────────────
+try:
+    import train as train_module
+    print('[xora] train module loaded')
+except Exception as e:
+    print(f'[xora] train import failed: {e}')
+    train_module = None
+
+@app.route('/train/record_zone', methods=['POST'])
+def train_record_zone():
+    data      = request.get_json()
+    zone_name = data.get('zone')
+    x         = float(data.get('x', 0.5))
+    y         = float(data.get('y', 0.5))
+    target    = int(data.get('samples', collect_data.SAMPLES_PER_ZONE))
+
+    def run():
+        try:
+            collect_data.collect_zone(zone_name, x, y, target)
+            print(f'[train] finished zone "{zone_name}"')
+        except Exception as e:
+            print(f'[train] zone error: {e}')
+
+    threading.Thread(target=run, daemon=True).start()
+    return jsonify({'status': 'started', 'zone': zone_name})
+
+@app.route('/train/record', methods=['POST'])
+def train_record():
+    data    = request.get_json()
+    label   = data.get('label')
+    samples = data.get('samples', 3000)
+
+    def run():
+        try:
+            print(f'[train] starting collection for "{label}" ({samples} samples)')
+            collect_data.collect(label, samples)
+            print(f'[train] finished collecting "{label}"')
+        except Exception as e:
+            print(f'[train] collection error: {e}')
+
+    threading.Thread(target=run, daemon=True).start()
+    return jsonify({'status': 'recording started', 'label': label})
+
+@app.route('/train/run', methods=['POST'])
+def train_run():
+    global model
+    try:
+        print('[train] starting position model training...')
+        accuracy = train_module.train_and_save()
+        model = train_module.load_model(model_path)
+        print(f'[train] training complete — score: {accuracy:.4f}')
+        return jsonify({'status': 'trained', 'accuracy': float(accuracy)})
+    except Exception as e:
+        print(f'[train] error: {e}')
+        return jsonify({'status': 'error', 'message': str(e)}), 500
+
 @app.route('/')
 def index():
     return render_template('index.html')
@@ -197,21 +267,25 @@ def index():
 def status():
     return jsonify({
         'boards_connected': [b for b in BOARD_IDS if len(csi_buffers[b]) > 0],
-        'calibrated': all(v is not None for v in baseline.values()),
+        'model_loaded': model is not None,
         'motion': state['motion'],
         'zone': state['zone'],
     })
 
-# ─── Start ────────────────────────────────────────────────
 if __name__ == '__main__':
-    # Load baseline if it exists
     if os.path.exists('baseline.npy'):
-        baseline = np.load('baseline.npy', allow_pickle=True).item()
+        baseline.update(np.load('baseline.npy', allow_pickle=True).item())
         print('[xora] baseline loaded')
 
-    # Start UDP listener in background
-    t = threading.Thread(target=udp_listener, daemon=True)
-    t.start()
+    if os.path.exists(model_path) and train_module is not None:
+        try:
+            model = train_module.load_model(model_path)
+            print('[xora] model loaded')
+        except Exception as e:
+            print(f'[xora] model load failed: {e}')
+
+    threading.Thread(target=udp_listener, daemon=True).start()
+    threading.Thread(target=heartbeat_loop, daemon=True).start()
 
     print('[xora] starting server → http://localhost:5000')
-    socketio.run(app, host='0.0.0.0', port=5000, debug=False)
+    socketio.run(app, host='0.0.0.0', port=5000, debug=False, use_reloader=False)
